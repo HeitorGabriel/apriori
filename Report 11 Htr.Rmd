@@ -1,0 +1,175 @@
+---
+title: "Regras de Associação Apriori"
+author: "Heitor Gabriel S. Monteiro"
+date: "08/11/2021"
+geometry: margin=1in
+fontfamily: mathpazo
+fontsize: 12pt
+output:
+  html_document:
+    highlight: tango
+    theme: cerulean
+    number_sections: yes
+    toc: yes
+    toc_float:
+      collapsed: no
+      smooth_scroll: no
+  pdf_document:
+    toc: true
+    number_sections: true
+    highlight: tango
+always_allow_html: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Prelúdio
+
+Nosso objetivo é entender possíveis associações entre itens na cesta de consumo de uma [base de dados](https://www.kaggle.com/heeraldedhia/groceries-dataset) de compras no supermercado. Para tal, usaremos o algoritmo [*Apriori*](https://www.datacamp.com/community/tutorials/market-basket-analysis-r) que tem alguns conceitos chaves:   
+
+   - **Support(A):** $$= \frac{Freq(A)}{N} = P(A) $$
+   - **Support(A,B):** $$= \frac{Freq(A \land B)}{N} \ \ = \ \ P(A \cap B) $$
+   - **Confidence(A $\rightarrow$ B):** $$ = \frac{Supp(A,B)}{Supp(A)} = \frac{Freq(A \land B)}{Freq(A)} = \frac{P(A \cap B)}{P(A)} = P(B|A) $$
+   - **Lift(A $\rightarrow$ B):** $$ = Lift(B \rightarrow A) = \ \ \frac{Conf(A \rightarrow B)}{Supp(A)·Supp(B)} \ \ = \frac{P(A \cap B)}{P(A)·P(B)} $$
+
+Aplicando-os em nossa situação, *Support* é a probabilidade de encontrar o produto A numa cesta de compras, ou uma sub-cesta (A, B) na cesta. *Confidence* é a chance de encontrar o produto B se já encontramos o A, a frequência do B em todas as compras que contenham A. *Lift* mede a chance de um conjunto (A, B) aparecer juntos comparado à chance de suas frequências absolutas. Se, por exemplo, $Lift(A,B)>1$, então há mais chances de ver os produtos A e B juntos do que encontrar A ou B, sozinho.
+
+# Importação e Descrição dos Dados
+
+Vamos definir o diretório de trabalho, que contém os arquivos e guardará as saídas, e carregar os pacotes, com destaque para o [`arules`](https://cran.r-project.org/web/packages/arules/index.html) e o [`arulesViz`](https://github.com/mhahsler/arulesViz).
+
+```{r, message=F, warning=F}
+setwd('/home/heitor/Área de Trabalho/R Projects/Análise Macro/Labs/Lab 11')
+
+library(tidyverse)
+library(arules)
+library(arulesViz)
+library(RColorBrewer)
+library(knitr)
+library(kableExtra)
+```
+
+O tipo otimizador de lidar com esse banco é trabalhar como arquivo de transações, usaremos então o `read.transactions()`. Na visão geral, vemos 9.835 transações com 169 categorias de produtos; o tamanho médio das compras são 4,4 produtos. 
+
+```{r, message=F, warning=F}
+dds <- read.transactions("groceries.csv", sep = ",")
+summary(dds)
+inspect(dds[1:5])
+```
+
+Podemos ver o *support* de cada item. Também fiz as seguintes operações para conseguir observar o *support* por pesquisa, no caso, pesquisei `ine`: 
+
+```{r, message=F, warning=F}
+itemFrequency(dds[,1:3])
+
+tst <- itemFrequency(dds) %>%
+	as.data.frame() %>%
+	rownames_to_column(var='product')
+tst <- dplyr::rename(tst, 'frq' = `.`)
+tst %>%
+  dplyr::filter(str_detect(product, 'ine')) %>% 
+  kable(caption = "Products that have 'ine' in name.") %>%
+  kable_styling(full_width =F,
+  			  position = 'center',
+  			  bootstrap_options =
+  			  	c("striped", "hover",
+  			  	  "condensed", "responsive"))
+```
+
+Com o programa, podemos fazer o plot dos mais frequentes produtos comprados:
+
+```{r, message=F, warning=F, fig.width=9, fig.height=4}
+itemFrequencyPlot(dds, topN = 20,
+				  type = "relative",
+				  col  = brewer.pal(8,'Pastel2'),
+				  main = "Absolute Item Frequency Plot")
+```
+
+# O Modelo
+
+Precisamos definir o modelo d acordo com os mínimos `support`, `confidence`, e `minlen`, que é o tamanho mínimo da cesta comprada. Considerando que as transações são de um período de um mês, determinei que a frequência seja de duas compras e meia por dia, daí o $(2.5*30)/9835$. Média de suporte e confidência não próximos do fixado é um indicativo que não escolhemos valores muito grandes ao ponto de prejudicar-nos.
+
+```{r}
+rule1 <- apriori(dds, parameter=
+				 	list(support    = (2.5*30)/9835,
+				 		 confidence = 0.25,
+				 		 minlen     = 2))
+rule1
+rule1 %>% summary()
+```
+
+Podemos ver quais são as regras de associação descobertas, organizadas por pesquisa ou por ranqueamentos:
+
+```{r}
+inspect(rule1[1:3])
+
+# procurando por regras que contenham "yogurt"
+inspect(
+	subset(rule1, items %pin% "yogurt")[1:10]) %>%
+	as.data.frame() %>%
+	kable(caption = "Rules that have 'yogurt' in name.") %>%
+  kable_styling(full_width =F,
+  			  position = 'center',
+  			  bootstrap_options =
+  			  	c("striped", "hover",
+  			  	  "condensed", "responsive"))
+
+# organizando por uma característica específica
+inspect(sort(rule1, by = "count")[1:5])
+```
+
+## Visualizações
+
+Para vizualização, podemos fazer um refinamento maior ainda, para ficar com as maiores *confidence*, acima de 0.5. A visualização mostra que há pouca correlação entre confidência e suporte e que `whole milk` é sim mais frequente nas regras de associação, mas a compra conjunta de `other vegetables` e outras frutas é bem mais forte que a compra separada delas, representado pelo *lift* maior. 
+
+```{r, message=F, warning=F, fig.width=9, fig.height=4}
+sub_rule1 <- rule1[quality(rule1)$confidence>0.5]
+
+plot(sub_rule1)
+plot(sub_rule1,
+	 method="paracoord",
+	 control=list(alpha=.5, reorder=TRUE))
+```
+
+```{r, message=FALSE, warning=FALSE, fig.width=9, fig.height=9}
+plot(sub_rule1,
+	 method = "grouped", control = list(k = 5))
+plot(sub_rule1,
+	 method="graph", control=list(type="items"))
+#plot(sub_rule1,
+#	 measure=c("support","lift"),
+#	 shading="confidence",interactive=T)
+```
+
+Por fim, considero esta a melhor representação gŕafica e interativa da associação do modelo, que confirma nossa forte associação do conjunto de orti-frut.
+
+```{r, message=FALSE, warning=FALSE, fig.width=9, fig.height=9}
+top10subRules <- head(sub_rule1,
+					  n = 10, by = "confidence")
+plot(top10subRules, method = "graph",  engine = "htmlwidget")
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
