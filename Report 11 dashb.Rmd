@@ -1,0 +1,133 @@
+---
+title: "Associações de Itens em Compras"
+output: 
+  flexdashboard::flex_dashboard:
+    orientation: rows
+    vertical_layout: fill
+    storyboard: true
+    theme:
+      version: 4
+      bootswatch: minty
+runtime: shiny
+---
+
+```{r setup, include=FALSE}
+library(flexdashboard)
+library(shiny)
+library(tidyverse)
+library(arules)
+library(arulesViz)
+library(RColorBrewer)
+library(knitr)
+
+dds <- read.transactions("groceries.csv", sep = ",")
+rule_dds <- read_delim("rule1.csv", delim = ";", 
+    escape_double = FALSE, trim_ws = TRUE)
+
+rule_dds <- rule_dds %>% 
+	separate(rules,
+			 c('Lado_Esquerdo','Lado_Direito'),
+			 sep = '=>')
+rule_dds$Lado_Esquerdo <- str_replace_all(rule_dds$Lado_Esquerdo, '[{ }]', '')
+
+rule_dds$Lado_Direito <- str_replace_all(rule_dds$Lado_Direito, '[{ }]', '')
+
+```
+
+# Os Dados {data-icon="fa-database"}
+
+## Row 1 {data-height=200}
+
+### Box 1
+
+```{r}
+valueBox(169,
+		 caption = 'Itens para compra',
+		 icon = 'fa-store-alt')
+```
+
+### Box 2
+
+```{r}
+valueBox(9835,
+		 caption = 'Compras realizadas',
+		 icon = 'fa-receipt')
+```
+
+### Box 3
+
+```{r}
+valueBox(327.8,
+		 caption = 'Compras por dia, na média',
+		 icon = 'fa-shopping-cart')
+```
+
+### Box 4
+
+```{r}
+valueBox(4.4,
+		 caption = 'Itens por Compra, na média',
+		 icon = 'fa-shopping-basket')
+```
+
+
+
+##  Row 2 {data-height=800}
+
+### Frequência Absoluta de Itens {data-width=600}
+
+```{r}
+itemFrequencyPlot(dds, topN = 20,
+				  type = "relative",
+				  col  = brewer.pal(6,'Set2'))
+```
+
+### Frequência do item selecionado: {data-width=400}
+  
+```{r}
+
+tst <- itemFrequency(dds) %>%
+	as.data.frame() %>%
+	rownames_to_column(var='Produto')
+tst <- dplyr::rename(tst, 'Frequência' = `.`)
+
+selectInput(
+	inputId = 'itens_freq',
+	label = 'Escolha um Item',
+	choices = tst$Produto,
+	selected = "whole milk"
+)
+
+renderTable({
+tst %>%
+		dplyr::filter(str_detect(
+			Produto, as.character(input$itens_freq)))
+})
+
+```
+
+
+# O Modelo {data-icon="fa-random"}
+
+###
+```{r, include=FALSE, echo=FALSE, message=FALSE, warning=FALSE}
+rule1 <- apriori(dds, parameter=
+				 	list(support    = (2.5*30)/9835,
+				 		 confidence = 0.25,
+				 		 minlen     = 2))
+top10subRules <- head(rule1,
+					  n = 10, by = "confidence")
+```
+
+
+```{r}
+plot(top10subRules, method = "graph",  engine = "htmlwidget")
+```
+
+###
+
+```{r}
+renderDataTable( rule_dds,
+	options=list( pageLength = 9, autoWidth= T))
+```
+
