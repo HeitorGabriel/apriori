@@ -1,6 +1,6 @@
 # apriori
 
-[Veja aqui meu relatório em html com códigos abertos.](https://heitorgabriel.github.io/apriori/)
+Veja [aqui meu relatório](https://heitorgabriel.github.io/apriori/) em html com códigos abertos.
 
 
 `Report 11 Htr.R` : script dos códigos;   
